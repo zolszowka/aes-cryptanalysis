@@ -12,8 +12,11 @@ class BabyAES:
     SBOX = [0xE, 0x4, 0xD, 0x1,
             0x2, 0xF, 0xB, 0x8,
             0x3, 0xA, 0x6, 0xC,
-            0x5, 0x9, 0x0, 0x7
-            ]
+            0x5, 0x9, 0x0, 0x7]
+    INV_SBOX = [0xE, 0x3, 0x4, 0x8,
+                0x1, 0xC, 0xA, 0xF,
+                0x7, 0xD, 0x9, 0x6,
+                0xB, 0x2, 0x0, 0x5]
 
     def __init__(self, master_key: int, num_rounds: int, verbose=False):
         self.master_key = master_key
@@ -21,7 +24,7 @@ class BabyAES:
         self.round_keys = None
         self.num_rounds = num_rounds
 
-    def encrypt_round(self, state: int, round_index: int, final_round=False):
+    def encrypt_round(self, state: int, round_index: int, final_round=False) -> int:
         """
         Performs one round of BabyAES encryption: 
         SubBytes, ShiftRows, MixColumns (skipped in the final round) and AddRoundKey.
@@ -71,7 +74,7 @@ class BabyAES:
 
         if self.verbose:
             print(
-                f"  after initial AddRoundKey: {state:016b}, rk={self.round_keys[0]:016b}")
+                f"  after AddRoundKey (round key 0): {state:016b}, rk={self.round_keys[0]:016b}")
 
         for r in range(self.num_rounds):
             final = r == self.num_rounds - 1
@@ -81,8 +84,53 @@ class BabyAES:
 
         return state
 
-    def decrypt(self):
-        pass
+    def decrypt_round(self, state: int, round_index: int, final_round=False) -> int:
+        """
+        Performs one round of BabyAES decryption:
+        AddRoundKey, MixColumns (if not final), InvShiftRows, InvSubBytes.
+        """
+        if self.verbose:
+            print(f"    start round state: {state:016b}")
+        state = self.add_round_key(state, round_index)
+        if self.verbose:
+            print(
+                f"    after AddRoundKey: {state:016b}, rk={self.round_keys[round_index]:016b}")
+        if not final_round:
+            state = self.mix_columns(state)
+            if self.verbose:
+                print(f"    after MixColumns: {state:016b}")
+        state = self.inv_shift_rows(state)
+        if self.verbose:
+            print(f"    after InvShiftRows: {state:016b}")
+        state = self.inv_sub_bytes(state)
+        if self.verbose:
+            print(f"    after InvSubBytes: {state:016b}")
+
+        return state
+
+    def decrypt(self, ct: int) -> int:
+        """
+        Decrypts a 16-bit ciphertext using BabyAES.
+        """
+        self.round_keys = self.key_expansion()
+        state = ct & 0xFFFF
+
+        if self.verbose:
+            print(f"CT: {state:016b} KEY: {self.master_key:016b}")
+
+        for r in range(self.num_rounds-1, -1, -1):
+            final = r == self.num_rounds - 1
+            if self.verbose:
+                print(f"Round {r+1}/{self.num_rounds}")
+            state = self.decrypt_round(state, r, final)
+
+        state = self.add_round_key(state, 0)
+
+        if self.verbose:
+            print(
+                f"  after AddRoundKey (round key 0): {state:016b}, rk={self.round_keys[0]:016b}")
+
+        return state
 
     def key_expansion(self) -> list[int]:
         """
@@ -159,21 +207,21 @@ class BabyAES:
             int: new 16-bit state after mixing columns
         Example:
             state = 0x1234 (matrix: [[1, 2], [3, 4]])
-            c0 = 1 ^ 3 = 2
-            c1 = 2 ^ 4 = 6
-            c2 = 3 ^ 1 = 2
-            c3 = 4 ^ 2 = 6
-            returns: 0x2626
+            c0 = 1 ^ 2 = 3
+            c1 = 2 
+            c2 = 3 ^ 4 = 7
+            c3 = 4 
+            returns: 0x3274
         """
         s0 = (state >> 12) & 0xF
         s1 = (state >> 8) & 0xF
         s2 = (state >> 4) & 0xF
         s3 = state & 0xF
 
-        c0 = s0 ^ s2
-        c1 = s1 ^ s3
-        c2 = s2 ^ s0
-        c3 = s3 ^ s1
+        c0 = s0 ^ s1
+        c1 = s1
+        c2 = s2 ^ s3
+        c3 = s3
 
         return (c0 << 12) | (c1 << 8) | (c2 << 4) | c3
 
@@ -190,10 +238,32 @@ class BabyAES:
         round_key = self.round_keys[round_index]
         return state ^ round_key
 
+    def inv_sub_bytes(self, state: int) -> int:
+        """
+        Inverse of SybBytes: substitutes nibbles using INV_SBOX.
+        """
+        s0 = self.INV_SBOX[(state >> 12) & 0xF]
+        s1 = self.INV_SBOX[(state >> 8) & 0xF]
+        s2 = self.INV_SBOX[(state >> 4) & 0xF]
+        s3 = self.INV_SBOX[state & 0xF]
+
+        return (s0 << 12) | (s1 << 8) | (s2 << 4) | s3
+
+    def inv_shift_rows(self, state: int) -> int:
+        """
+        Inverse of ShiftRows: rotates second row back to original position.
+        """
+        s0 = (state >> 12) & 0xF
+        s1 = (state >> 8) & 0xF
+        s2 = (state >> 4) & 0xF
+        s3 = state & 0xF
+
+        return (s0 << 12) | (s1 << 8) | (s3 << 4) | s2
+
 
 if __name__ == "__main__":
     MASTER_KEY = 0b1010010110100101
-    PLAINTEXT = 0b1100101011010001
+    PLAINTEXT = 0b1110011110111101
     NUM_ROUNDS = 3
 
     aes = BabyAES(master_key=MASTER_KEY, num_rounds=NUM_ROUNDS, verbose=True)
@@ -202,5 +272,10 @@ if __name__ == "__main__":
     ciphertext = aes.encrypt(PLAINTEXT)
 
     print("\nRESULTS")
-    print(f" Plaintext: {PLAINTEXT:016b}")
-    print(f" Ciphertext: {ciphertext:016b}")
+    print(f" Plaintext:  {PLAINTEXT:016b} (0x{PLAINTEXT:04X})")
+    print(f" Ciphertext: {ciphertext:016b} (0x{ciphertext:04X})")
+
+    print("\n\n===DECRYPT===")
+    decrypted = aes.decrypt(ciphertext)
+    print("\nRESULTS")
+    print(f" Decrypted:  {decrypted:016b} (0x{decrypted:04X})")
