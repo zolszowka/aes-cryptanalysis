@@ -197,9 +197,36 @@ class BabyAES:
 
         return (s0 << 12) | (s1 << 8) | (s3 << 4) | s2
 
+    def gf_mul(self, a: int, b: int) -> int:
+        """
+        Galois field multiplication of a and b in GF(2^4) using irreducible polynomial: 
+        x^4 + x + 1 (0b10011).
+
+        Args:
+            a (int): first 4-bit operand
+            b (int): second 4-bit operand
+        Returns:
+            int: product of a and b reduced to 4 bits
+        Example:
+            gf_mult(0x3, 0x7) -> 0x9
+        """
+        product = 0
+
+        for _ in range(4):
+            if b & 1:
+                product ^= a
+            a = ((a << 1) ^ 0b10011) if a & 0b1000 else (a << 1)
+            b >>= 1
+
+        return product & 0xF
+
     def mix_columns(self, state: int) -> int:
         """
-        Mixes the columns of a 2x2 nibble matrix using XOR.
+        Mixes the columns of a 2x2 nibble matrix using Galois Field GF(2^4) arithmetic.
+
+        Each column [s0, s2] and [s1, s2] is multiplied by the constant matrix:
+            [2 3]
+            [3 2]
 
         Args:
             state (int): 16-bit integer
@@ -207,21 +234,19 @@ class BabyAES:
             int: new 16-bit state after mixing columns
         Example:
             state = 0x1234 (matrix: [[1, 2], [3, 4]])
-            c0 = 1 ^ 2 = 3
-            c1 = 2 
-            c2 = 3 ^ 4 = 7
-            c3 = 4 
-            returns: 0x3274
+            Column 1: c0 = 7, c2 = 5
+            Column 2: c1 = 8, c3 = 14
+            returns: 0x785E
         """
         s0 = (state >> 12) & 0xF
         s1 = (state >> 8) & 0xF
         s2 = (state >> 4) & 0xF
         s3 = state & 0xF
 
-        c0 = s0 ^ s1
-        c1 = s1
-        c2 = s2 ^ s3
-        c3 = s3
+        c0 = self.gf_mul(2, s0) ^ self.gf_mul(3, s2)
+        c1 = self.gf_mul(2, s1) ^ self.gf_mul(3, s3)
+        c2 = self.gf_mul(3, s0) ^ self.gf_mul(2, s2)
+        c3 = self.gf_mul(3, s1) ^ self.gf_mul(2, s3)
 
         return (c0 << 12) | (c1 << 8) | (c2 << 4) | c3
 
@@ -263,7 +288,7 @@ class BabyAES:
 
 if __name__ == "__main__":
     MASTER_KEY = 0b1010010110100101
-    PLAINTEXT = 0b1110011110111101
+    PLAINTEXT = 0b0001101110111101
     NUM_ROUNDS = 3
 
     aes = BabyAES(master_key=MASTER_KEY, num_rounds=NUM_ROUNDS, verbose=True)
