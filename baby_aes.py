@@ -286,9 +286,17 @@ class BabyAES:
         return (s0 << 12) | (s1 << 8) | (s3 << 4) | s2
 
 
+def encrypt_with_babyaes(plaintext, key, rounds):
+    """
+    Encrypt a plaintext using the BabyAES algorithm.
+    """
+    cipher = BabyAES(master_key=key, num_rounds=rounds)
+    return cipher.encrypt(plaintext)
+
+
 if __name__ == "__main__":
-    MASTER_KEY = 0b1010010110100101
-    PLAINTEXT = 0b0001101110111101
+    MASTER_KEY = 0b1111000011110000
+    PLAINTEXT = 0b1100110011001100
     NUM_ROUNDS = 3
 
     aes = BabyAES(master_key=MASTER_KEY, num_rounds=NUM_ROUNDS, verbose=True)
