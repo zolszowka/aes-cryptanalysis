@@ -1,0 +1,5 @@
+- przerobić dokumentację i komentarze wszędzie
+- ułożyć metody w klasach/funkcje w dobrej kolejności
+- wykresy
+- liczba operacji
+- zużycie pamięci
