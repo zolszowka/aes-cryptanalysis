@@ -3,6 +3,3 @@
 - wykresy
 - liczba operacji
 - zużycie pamięci
-
-niech się wyświetla ile ścieżek było potrzebnych
-mierzenie czasu w main

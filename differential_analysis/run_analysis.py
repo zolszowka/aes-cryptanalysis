@@ -1,7 +1,8 @@
+# Pisanie kodu było wspomagane modelem Gemini
+
 import os
 import time
 
-# Importujemy nasze moduły jako biblioteki
 from differential_analysis.data_models.collections.diff_pair_collection import DiffPairCollection
 from differential_analysis.scripts.find_path import get_ranked_paths
 from differential_analysis.scripts.generate_pairs import run_generation
@@ -18,7 +19,8 @@ def main():
     
     start_time = time.time()
     
-    # Statystyki raportu
+    # Statystyki raportu, czas jest trochę impacted przez zapis danych
+    # TODO: przeanalizować możliwość włączenia stopera w innym miejscu kodu
     stats = {
         "paths_checked": 0,
         "brute_force_used": False,
@@ -28,10 +30,10 @@ def main():
 
     # 1. Ranking Ścieżek
     print("Generowanie rankingu ścieżek...")
-    ranked_paths = get_ranked_paths()
+    ranked_paths = get_ranked_paths(visualize=True)
     print(f"Dostępnych ścieżek w rankingu: {len(ranked_paths)}")
     
-    # Wiedza o kluczu (None = nieznany nibble)
+    # Inicjalizacja stanu klucza
     known_key_nibbles = [None] * 4
     
     ref_p = None
@@ -45,9 +47,11 @@ def main():
         path_info = ranked_paths[path_idx]
         
         print(f"\n{PathVisualizer.C_BOLD}>>> [ŚCIEŻKA #{path_idx + 1}] Delta: 0x{path_info['delta_in']:04X} -> Cel: 0x{path_info['expected_diff']:04X}{PathVisualizer.C_RESET}")
+        print(f"Prawdopodobieństwo: {path_info['prob']*100:.1f}%")
 
-        # 2. Zarządzanie Danymi (Smart Loading)
+        # Zarządzanie Danymi (Smart Loading)
         # Tworzymy unikalną nazwę kolekcji dla tej konkretnej delty
+        # TODO: możliwość w settingsach zdefiniowania nazwy kolekcji i wtedy ona by się wczytywała - ale to nie jest priorytet
         col_name = f"{settings.COLLECTION_NAME_PREFIX}_delta_{path_info['delta_in']:X}"
         col_file_path = os.path.join(settings.DATA_DIR, "collections", f"{col_name}.json")
         
@@ -56,29 +60,14 @@ def main():
         # Sprawdzamy czy dane już istnieją
         if os.path.exists(col_file_path):
             print(f"[CACHE] Znaleziono istniejące dane dla tej ścieżki. Wczytuję...")
-            # Musimy wyciągnąć ID z nazwy pliku lub załadować po nazwie.
-            # Nasz loader ładuje po ID (UUID). 
-            # Dla uproszczenia: wczytamy plik JSON ręcznie żeby pobrać ID, 
-            # lub po prostu wygenerujemy nową kolekcję jeśli cache system jest zbyt prosty.
-            # Tutaj: Załóżmy wariant prosty - jeśli plik jest, próbujemy go użyć.
-            # (Wymagałoby to zmiany w DataModel żeby szukać po nazwie, 
-            #  więc dla 100% pewności wygenerujmy, CHYBA ŻE zaimplementujesz mapowanie Nazwa->ID).
-            
-            # Wariant bezpieczny (nadpisanie):
-            # print("   (Nadpisuję świeżymi danymi)")
-            # col_id = run_generation(override_delta_in=path_info['delta_in'])
-            # stats["data_generated_fresh"] = True
-            
-            # Wariant PRO (z mapowaniem nazw na ID w przyszłości):
-            # Tu użyjemy Twojego run_generation, który w obecnej formie ZAWSZE generuje.
-            # Aby to zmienić, run_generation musiałoby sprawdzać pliki.
+            # TODO - zaimplementować lub usunąć
             pass
 
         # Na razie generujemy zawsze (dla bezpieczeństwa ataku)
         settings.COLLECTION_NAME = col_name # Ustawiamy nazwę dla generatora
         col_id = run_generation(override_delta_in=path_info['delta_in'])
         
-        # Wczytanie
+        # Wczytanie do kolekcji
         collection = DiffPairCollection.load(col_id)
         
         # Pobranie pary referencyjnej
@@ -113,14 +102,13 @@ def main():
         if not new_info:
             print("Ścieżka nie wniosła nowych informacji.")
 
-    # --- PO PĘTLI: BRUTE FORCE ---
+    # --- PO PĘTLI: ewentualny BRUTE FORCE ---
     final_equiv_key = None
     
     if None in known_key_nibbles:
-        if settings.ENABLE_BRUTE_FORCE and ref_p is not None:
-            stats["brute_force_used"] = True
-            print(f"\n{PathVisualizer.C_YELLOW}>>> Uruchamiam BRUTE-FORCE dla brakujących nibbli...{PathVisualizer.C_RESET}")
-            final_equiv_key = brute_force_completion(known_key_nibbles, ref_p, ref_c)
+        if settings.ENABLE_BRUTE_FORCE: # usunięto warunek ref_p is not None bo przekazujemy kolekcję
+            print(f"\n{PathVisualizer.C_YELLOW}>>> Uruchamiam BRUTE-FORCE...{PathVisualizer.C_RESET}")
+            final_equiv_key = brute_force_completion(known_key_nibbles, collection)
         else:
             print("\nBrak możliwości Brute-Force (wyłączony lub brak P1).")
     else:
@@ -128,6 +116,8 @@ def main():
         k = 0
         for i in range(4): k |= (known_key_nibbles[i] << ((3-i)*4))
         final_equiv_key = k
+
+# TODO - co jeśli z jednej ścieżki nam wyjdzie inny nibble klucza niż z innej ścieżki?
 
     # --- KONWERSJA I WERYFIKACJA ---
     end_time = time.time()

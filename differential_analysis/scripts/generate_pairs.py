@@ -1,4 +1,3 @@
-# scripts/generate_data.py
 from baby_aes import BabyAES
 from differential_analysis.data_models.block import Block
 from differential_analysis.data_models.diff_pair import DiffPair
@@ -8,7 +7,8 @@ import differential_analysis.settings
 
 def run_generation(override_delta_in=None, override_count=None):
     
-    # Używamy wartości z argumentów LUB z settings
+    # Używamy wartości z argumentów (w praktyce zawsze), jak nie to pobiera wartość z settings jakby ktoś
+    # chciał to robić ręcznie
     delta_in = override_delta_in if override_delta_in is not None else differential_analysis.settings.INITIAL_DELTA_IN
     count = override_count if override_count is not None else differential_analysis.settings.NUM_PAIRS
     

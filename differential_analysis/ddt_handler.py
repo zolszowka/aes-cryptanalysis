@@ -1,5 +1,6 @@
 from utils.visualizer import PathVisualizer
 
+# TODO: może przenieść do utils?
 class DDTHandler:
     """
     Centralna klasa do obsługi Difference Distribution Table (DDT).

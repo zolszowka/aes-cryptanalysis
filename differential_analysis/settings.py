@@ -1,33 +1,27 @@
 DATA_DIR = "data"
-# --- 2. KONFIGURACJA SZYFRU (BabyAES) ---
-# Klucz główny używany przez "Ofiarę" (do generowania danych)
-MASTER_KEY = 0b1010010110100101 
 
-# Całkowita liczba rund szyfru (np. 2, 3, 4)
-# To decyduje, jak głęboko szyfruje oracle.
+# Klucz główny - do zgadywania
+MASTER_KEY = 0b1110010111000110 
+
 TOTAL_CIPHER_ROUNDS = 2
 
-# --- 3. KONFIGURACJA ŚCIEŻKI RÓŻNICOWEJ (Find Path) ---
-# Ile rund ma obejmować nasza ścieżka różnicowa?
-# Zazwyczaj: PATH_ROUNDS = TOTAL_CIPHER_ROUNDS - 1
-# (bo ostatnią rundę atakujemy, więc ścieżka musi doprowadzić nas do jej drzwi)
-PATH_ROUNDS = 1
-
-# Różnica wejściowa, którą chcemy testować (możesz ją zmienić po analizie DDT)
-# Domyślnie 0x000B (najlepsza dla BabyAES S-box)
+# Domyślna różnica wejściowa dla danych, w praktyce nie używana przez główny skrypt
 INITIAL_DELTA_IN = 0x000B
 
-# --- 4. KONFIGURACJA GENERATORA (Generate Data) ---
-# Ile par szyfrogramów chcemy zebrać?
+# Liczba par szyfrogramów
 NUM_PAIRS = 500
+
 # Nazwa kolekcji do zapisu
 COLLECTION_NAME_PREFIX = "attack_data_run1"
 
-# Inne stałe
 BLOCK_SIZE = 16
 
 # Maksymalna liczba różnych ścieżek różnicowych do sprawdzenia
-MAX_PATHS = 3
+MAX_PATHS = 4
 
+# Brute force dopiero po wyczerpaniu ścieżek w ilości MAX_PATHS
 ENABLE_BRUTE_FORCE = True
+
+# Powyżej niego uzna że nibble odgadnięty. Im bardziej powyżej 6.25 dla naszego baby aes, tym lepiej
+MIN_NIBBLE_ACCURACY_THRESHOLD = 10.0
 

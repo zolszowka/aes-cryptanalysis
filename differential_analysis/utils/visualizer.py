@@ -1,3 +1,5 @@
+# TODO: przejrzeć, dodać generowanie wykresOw do raportu
+
 class PathVisualizer:
     """
     Klasa do generowania ładnych wizualizacji w terminalu dla kryptoanalizy.

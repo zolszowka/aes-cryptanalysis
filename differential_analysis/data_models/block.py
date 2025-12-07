@@ -17,17 +17,13 @@ class Block(DataModel):
         return {
             "val": self.value,
             "bits": self.size
-            # ID zostanie dodane automatycznie w metodzie save() lub przez rodzica
         }
 
     @classmethod
     def from_dict(cls, data: dict):
         """Odtwarza obiekt Block."""
-        # Pobieramy ID jeśli jest w danych (np. zagnieżdżone w DiffPair)
         uid = data.get('id', None)
         return cls(value=data["val"], size_bits=data["bits"], uid=uid)
-
-    # --- Metody logiczne Bloku ---
 
     def get_nibble(self, index: int) -> int:
         total_nibbles = (self.size + 3) // 4
@@ -56,11 +52,8 @@ class Block(DataModel):
         total_nibbles = (self.size + 3) // 4
         shift = (total_nibbles - 1 - index) * 4
         
-        # Wyzeruj stary nibble (AND z maską z dziurą)
-        # Np. dla 0x1234 i index 1 (chcemy usunąć 2): maska 0xF0FF
         nibble_mask = ~(0xF << shift) & self.mask
-        
-        # Wstaw nowy (OR)
+
         new_value = (self.value & nibble_mask) | ((val & 0xF) << shift)
         return Block(new_value, self.size)
 

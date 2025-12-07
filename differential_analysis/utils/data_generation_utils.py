@@ -13,8 +13,9 @@ def generate_random_pair(delta_val: int, size_bits: int = 16) -> DiffPair:
     
     return DiffPair(b1, b2)
 
+# TODO: sprawdzić czy ostatecznie gdzieś tego używałem/mogę użyć
 def populate_collection(collection, count: int, delta_val: int):
     print(f"Generuję {count} par...")
     for _ in range(count):
         pair = generate_random_pair(delta_val)
-        collection.add(pair) # To automatycznie zapisze pliki par
+        collection.add(pair)

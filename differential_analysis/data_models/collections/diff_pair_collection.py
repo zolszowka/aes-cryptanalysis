@@ -7,15 +7,13 @@ class DiffPairCollection(DataModel):
     def __init__(self, name="default_collection", uid=None):
         super().__init__(uid)
         self.name = name
-        self.pair_ids = [] # Lista stringów (UUID)
-        self._cache = {}   # Cache załadowanych obiektów
+        self.pair_ids = []
+        self._cache = {}
 
     def add(self, pair: DiffPair):
         """Dodaje parę do kolekcji i zapisuje ją fizycznie na dysku."""
-        # 1. Zapisz plik pary (w data/pairs/uuid.json)
         pair.save()
         
-        # 2. Dodaj ID do listy
         if pair.id not in self.pair_ids:
             self.pair_ids.append(pair.id)
             self._cache[pair.id] = pair
@@ -27,8 +25,6 @@ class DiffPairCollection(DataModel):
         if pid in self._cache:
             return self._cache[pid]
         
-        # Lazy loading: wczytaj dopiero gdy potrzebne
-        print(f"...wczytuję parę {pid}...")
         pair = DiffPair.load(pid)
         self._cache[pid] = pair
         return pair

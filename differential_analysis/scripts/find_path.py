@@ -1,8 +1,9 @@
 from baby_aes import BabyAES
 from differential_analysis.ddt_handler import DDTHandler
 import differential_analysis.settings as settings
+from differential_analysis.utils.visualizer import PathVisualizer
 
-def get_ranked_paths():
+def get_ranked_paths(visualize=False):
     """
     Znajduje najlepsze ścieżki różnicowe dla całego szyfru.
     1. Pobiera najlepsze przejścia dla pojedynczego S-boxa z DDTHandler.
@@ -12,17 +13,18 @@ def get_ranked_paths():
     Returns:
         List[dict]: Lista posortowanych ścieżek {'delta_in', 'expected_diff', 'prob'}
     """
-    
-    # Inicjalizacja narzędzi
     aes = BabyAES(master_key=0, num_rounds=settings.TOTAL_CIPHER_ROUNDS)
     ddt_handler = DDTHandler(BabyAES.SBOX)
+
+    if visualize:
+        PathVisualizer.print_header("ANALIZA S-BOX (DDT)")
+        ddt_handler.visualize()
     
-    # 1. Pobierz najlepsze "cegiełki" (przejścia S-boxa)
     sbox_transitions = ddt_handler.get_ranked_sbox_transitions()
     
     full_paths = []
 
-    # 2. Generuj kandydatów na pełne ścieżki
+    # Generuj kandydatów na pełne ścieżki
     # Dla każdego dobrego przejścia S-boxa...
     for sbox_in, sbox_out, base_prob in sbox_transitions:
         
@@ -36,14 +38,15 @@ def get_ranked_paths():
             
             total_path_prob = 1.0
             
-            # 3. Symulacja propagacji przez rundy (PATH_ROUNDS)
-            for r in range(settings.PATH_ROUNDS):
+            # Symulacja propagacji przez rundy (z tymi dodatkowymi operacjami)
+            for r in range(settings.TOTAL_CIPHER_ROUNDS - 1):
+                # TODO: wyrzucić niepotrzebne zmienne
                 next_round_input = 0
                 round_prob = 1.0
                 
                 # A. Warstwa S-box (Nieliniowa)
                 # Musimy sprawdzić każdy z 4 nibbli, bo po MixColumns w rundzie 1
-                # w rundzie 2 mogą być aktywne 2, 3 lub 4 S-boxy!
+                # w rundzie 2 mogą być aktywne 2, 3 lub 4 S-boxy
                 sbox_layer_out = 0
                 
                 for i in range(4):
@@ -70,9 +73,9 @@ def get_ranked_paths():
             # Ignorujemy ścieżki z zerowym prawdopodobieństwem (niemożliwe)
             if total_path_prob > 0.0:
                 full_paths.append({
-                    'delta_in': start_delta_in,      # To podasz do generatora
-                    'expected_diff': current_diff,   # To podasz do attack.py
-                    'prob': total_path_prob          # To służy do rankingu
+                    'delta_in': start_delta_in,
+                    'expected_diff': current_diff,
+                    'prob': total_path_prob
                 })
 
     # 5. Sortowanie globalne (najlepsze na górze)
@@ -81,7 +84,7 @@ def get_ranked_paths():
     return full_paths
 
 if __name__ == "__main__":
-    # Test bezpośredni
+    # Jakby ktoś chciał odpalać bezpośrednio, ale raczej to bedzie do usunięcia
     ranked = get_ranked_paths()
     print(f"Znaleziono {len(ranked)} ścieżek.")
     for i, p in enumerate(ranked[:5]):

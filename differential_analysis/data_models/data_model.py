@@ -9,8 +9,7 @@ class DataModel(ABC):
     """
     Abstrakcyjna klasa bazowa obsługująca zapis i odczyt JSON z unikalnym ID (UUID).
     """
-    
-    # To nadpisujemy w klasach pochodnych (np. "DATA_DIR/pairs")
+
     BASE_DIR = DATA_DIR
 
     def __init__(self, uid=None):
@@ -38,18 +37,14 @@ class DataModel(ABC):
         path = self.get_filepath()
         
         data = self.to_dict()
-        # Doklejamy ID do danych, żeby nie zginęło
         data['id'] = self.id
         
         with open(path, 'w') as f:
             json.dump(data, f, indent=4)
-        print(f"[{self.__class__.__name__}] Zapisano: {path}")
 
     @classmethod
     def load(cls, uid: str):
         """Wczytuje obiekt z dysku na podstawie ID."""
-        # Tworzymy tymczasową instancję tylko po to, by dostać BASE_DIR
-        # (lub używamy cls.BASE_DIR jeśli jest zdefiniowane w klasie)
         filepath = os.path.join(cls.BASE_DIR, f"{uid}.json")
         
         if not os.path.exists(filepath):
@@ -59,5 +54,5 @@ class DataModel(ABC):
             data = json.load(f)
 
         obj = cls.from_dict(data)
-        obj.id = data.get('id', uid) # Przywracamy oryginalne ID
+        obj.id = data.get('id', uid)
         return obj
