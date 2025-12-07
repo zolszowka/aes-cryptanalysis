@@ -21,7 +21,13 @@ INITIAL_DELTA_IN = 0x000B
 # Ile par szyfrogramów chcemy zebrać?
 NUM_PAIRS = 500
 # Nazwa kolekcji do zapisu
-COLLECTION_NAME = "attack_data_run1"
+COLLECTION_NAME_PREFIX = "attack_data_run1"
 
 # Inne stałe
 BLOCK_SIZE = 16
+
+# Maksymalna liczba różnych ścieżek różnicowych do sprawdzenia
+MAX_PATHS = 3
+
+ENABLE_BRUTE_FORCE = True
+

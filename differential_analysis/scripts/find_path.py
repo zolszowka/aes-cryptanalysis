@@ -1,79 +1,88 @@
 from baby_aes import BabyAES
 from differential_analysis.ddt_handler import DDTHandler
-from differential_analysis.utils.visualizer import PathVisualizer
-import differential_analysis.settings
+import differential_analysis.settings as settings
 
-def find_generic_path(visualize=True):
-    if visualize:
-        PathVisualizer.print_header(f"ANALIZA ŚCIEŻKI ({differential_analysis.settings.PATH_ROUNDS} RUND)")
+def get_ranked_paths():
+    """
+    Znajduje najlepsze ścieżki różnicowe dla całego szyfru.
+    1. Pobiera najlepsze przejścia dla pojedynczego S-boxa z DDTHandler.
+    2. Testuje każde z nich na każdej z 4 pozycji nibbli w bloku 16-bitowym.
+    3. Symuluje propagację przez zadaną liczbę rund.
     
-    # Inicjalizacja
-    aes = BabyAES(master_key=0, num_rounds=differential_analysis.settings.TOTAL_CIPHER_ROUNDS)
-    ddt_handler = DDTHandler(BabyAES.SBOX) # <--- Instancja Handlera
+    Returns:
+        List[dict]: Lista posortowanych ścieżek {'delta_in', 'expected_diff', 'prob'}
+    """
     
-    # Jeśli użytkownik nie podał delty w settings (0), znajdujemy najlepszą automatycznie
-    current_diff = differential_analysis.settings.INITIAL_DELTA_IN
-    if current_diff == 0:
-         best_in, _, _ = ddt_handler.find_global_best_transition()
-         current_diff = best_in # Dla S-boxa, trzeba to przesunąć na odpowiedni nibble
-         # Dla uproszczenia w BabyAES, wstawiamy to na ostatni nibble
-         current_diff = best_in # np. 0xB -> 0x000B (bo to int)
+    # Inicjalizacja narzędzi
+    aes = BabyAES(master_key=0, num_rounds=settings.TOTAL_CIPHER_ROUNDS)
+    ddt_handler = DDTHandler(BabyAES.SBOX)
     
-    total_prob = 1.0
+    # 1. Pobierz najlepsze "cegiełki" (przejścia S-boxa)
+    sbox_transitions = ddt_handler.get_ranked_sbox_transitions()
     
-    if visualize:
-        # Pokaż DDT raz na początku
-        ddt_handler.visualize()
-        print(f"\nStartowa Różnica: 0x{current_diff:04X}\n")
+    full_paths = []
 
-    # --- PĘTLA PO RUNDACH ---
-    for r in range(differential_analysis.settings.PATH_ROUNDS):
-        if visualize:
-            print(f"{PathVisualizer.C_BOLD}--- RUNDA {r + 1} ---{PathVisualizer.C_RESET}")
+    # 2. Generuj kandydatów na pełne ścieżki
+    # Dla każdego dobrego przejścia S-boxa...
+    for sbox_in, sbox_out, base_prob in sbox_transitions:
         
-        # 1. WARSTWA S-BOX (Używamy Handlera)
-        next_sbox_state = 0
-        round_prob = 1.0
-        
-        for i in range(4): 
-            shift = (3 - i) * 4
-            nibble_in = (current_diff >> shift) & 0xF
+        # ...sprawdź umieszczenie go w każdym z 4 nibbli bloku
+        for nibble_idx in range(4):
+            shift = (3 - nibble_idx) * 4
             
-            # UŻYCIE HANDLERA:
-            nibble_out, p = ddt_handler.get_best_transition(nibble_in)
+            # Tworzymy 16-bitową różnicę startową (np. 0x000B)
+            current_diff = (sbox_in << shift)
+            start_delta_in = current_diff
             
-            next_sbox_state |= (nibble_out << shift)
-            round_prob *= p 
+            total_path_prob = 1.0
+            
+            # 3. Symulacja propagacji przez rundy (PATH_ROUNDS)
+            for r in range(settings.PATH_ROUNDS):
+                next_round_input = 0
+                round_prob = 1.0
+                
+                # A. Warstwa S-box (Nieliniowa)
+                # Musimy sprawdzić każdy z 4 nibbli, bo po MixColumns w rundzie 1
+                # w rundzie 2 mogą być aktywne 2, 3 lub 4 S-boxy!
+                sbox_layer_out = 0
+                
+                for i in range(4):
+                    chk_shift = (3 - i) * 4
+                    nibble_val = (current_diff >> chk_shift) & 0xF
+                    
+                    # Pytamy Handlera o najlepsze wyjście dla tego nibbla
+                    # (Jeśli nibble_val == 0, handler zwróci 0 i prob 1.0)
+                    n_out, p = ddt_handler.get_best_transition(nibble_val)
+                    
+                    sbox_layer_out |= (n_out << chk_shift)
+                    round_prob *= p
+                
+                total_path_prob *= round_prob
+                
+                # B. Warstwa Liniowa (ShiftRows + MixColumns)
+                after_shift = aes.shift_rows(sbox_layer_out)
+                after_mix = aes.mix_columns(after_shift)
+                
+                # Wynik tej rundy staje się wejściem następnej
+                current_diff = after_mix
 
-        total_prob *= round_prob
-        
-        if visualize:
-            print(f" S-Box Layer Out: 0x{next_sbox_state:04X} (Prob: {round_prob*100:.1f}%)")
+            # 4. Zapisujemy wynik symulacji
+            # Ignorujemy ścieżki z zerowym prawdopodobieństwem (niemożliwe)
+            if total_path_prob > 0.0:
+                full_paths.append({
+                    'delta_in': start_delta_in,      # To podasz do generatora
+                    'expected_diff': current_diff,   # To podasz do attack.py
+                    'prob': total_path_prob          # To służy do rankingu
+                })
 
-        # 2. WARSTWA LINIOWA
-        after_shift = aes.shift_rows(next_sbox_state)
-        after_mix = aes.mix_columns(after_shift)
-        
-        if visualize and r == 0:
-            step_data = {
-                'input': current_diff,
-                'sbox_out': next_sbox_state,
-                'shift_out': after_shift,
-                'mix_out': after_mix,
-                'prob': round_prob * 100
-            }
-            PathVisualizer.visualize_path_step_by_step(step_data)
-        elif visualize:
-             print(f" Linear Layer Out: 0x{after_mix:04X}")
-
-        current_diff = after_mix
-
-    if visualize:
-        PathVisualizer.print_header("WYNIK ANALIZY")
-        print(f"DELTA_IN:      0x{differential_analysis.settings.INITIAL_DELTA_IN:04X}")
-        print(f"EXPECTED_DIFF: 0x{current_diff:04X}")
+    # 5. Sortowanie globalne (najlepsze na górze)
+    full_paths.sort(key=lambda x: x['prob'], reverse=True)
     
-    return differential_analysis.settings.INITIAL_DELTA_IN, current_diff
+    return full_paths
 
 if __name__ == "__main__":
-    find_generic_path()
+    # Test bezpośredni
+    ranked = get_ranked_paths()
+    print(f"Znaleziono {len(ranked)} ścieżek.")
+    for i, p in enumerate(ranked[:5]):
+        print(f"{i+1}. In: 0x{p['delta_in']:04X} -> Target: 0x{p['expected_diff']:04X} (P: {p['prob']*100:.2f}%)")
