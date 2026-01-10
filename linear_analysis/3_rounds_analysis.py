@@ -1,3 +1,4 @@
+#dostosowanie do 3 rund
 #uogólniona inwersja ostatniej rundy (usuwa poprzedni RK o indeksie L-1)
 #atak odzyskuje ostatni klucz rundy: round_keys[NUM_ROUNDS-1]
 
@@ -9,14 +10,13 @@ from collections import defaultdict
 
 NUM_ROUNDS = 3
 NUM_PAIRS = 20000
-MASTER_KEY = 0b1111011010111100
+MASTER_KEY = 0b1111011011110100
 SEED = 42
 
 TOP_LAT_PAIRS = 16
 MAX_PLAINTEXT_MASK_WEIGHT = 3
 
-#scoring/search params
-K_CANDIDATES = 3        #top-K candidates per nibble to combine globally
+K_CANDIDATES = 3
 DEBUG = False
 
 random.seed(SEED)
@@ -59,42 +59,37 @@ def pack_parities_to_int(parity_list):
         bits = (bits << 1) | (b & 1)
     return bits
 
-#Precompute inverse of mix_columns using only public methods of aes_obj (no changes to BabyAES)
+#Odwracanie mix_columns
 def make_inv_mix_columns(aes_obj):
     inv_map = {}
-    #precompute mapping mix_columns(s) -> s for all 16-bit states
     for s in range(0x10000):
         m = aes_obj.mix_columns(s)
         inv_map[m] = s
-    # mapping should be bijection (size 65536)
     if len(inv_map) != 0x10000:
         raise RuntimeError("inv_mix precomputation failed: mix_columns is not bijective over 16-bit states")
     def inv_mix(state):
-        #if state not in map, raise to catch unexpected cases
         if state not in inv_map:
             raise KeyError(f"inv_mix: state 0x{state:04X} not found in precomputed map")
         return inv_map[state]
     return inv_mix
 
 #Cofnięcie ostatniej rundy + odwrócenie MixColumns poprzedniej rundy
-#prev_rk_index: indeks klucza rundy, który należy usunąć przed odwróceniem MixColumns
+#prev_rk_index - indeks klucza rundy, który należy usunąć przed odwróceniem MixColumns
 def inv_last_round_state_from_ct_and_guess(ct, guess_round_key_16, aes_obj, inv_mix_func, prev_rk_index):
-    #remove guessed last round key (XOR)
+    #Usunięcie zgadniętego klucza ostatniej rundy
     temp = ct ^ guess_round_key_16
-    #inverse shift rows
+    #Odwrócenie shift_rows
     temp2 = aes_obj.inv_shift_rows(temp)
-    #inverse subbytes
+    #Odwrócenie subbytes
     prev = aes_obj.inv_sub_bytes(temp2)
-    #Now prev is state AFTER MixColumns(prev_round) XOR RK_prev
-    #remove RK_prev (the key of the previous round)
+    #Tutaj prev to stan po mixcolumns XOR rk_prev
+    #Usunięcie RK_prev (kllucz ostatniej rundy)
     prev ^= aes_obj.round_keys[prev_rk_index]
-    #inverse MixColumns for previous round (use precomputed inverse mapping)
+    #Odwrócenie mixcolumns
     prev = inv_mix_func(prev)
-    #Now prev is the state *before* MixColumns in previous round, i.e. output of SubBytes(prev_round)
     return prev
 
 def precompute_plain_bits(plaintexts, plaintext_masks):
-    #plaintexts should already be whitened: plaintext ^ RK0
     table = {}
     for mask in plaintext_masks:
         par = [ (popcount(p & mask) & 1) for p in plaintexts ]
@@ -102,10 +97,9 @@ def precompute_plain_bits(plaintexts, plaintext_masks):
     return table
 
 def precompute_out_bits_for_pos(aes_obj, ciphertexts, sbox_index, top_out_masks, inv_mix_func, prev_rk_index):
-    shift_map = [0, 1, 3, 2]  # sbox 0->pos0, sbox1->pos1, sbox2->pos3, sbox3->pos2
-    rk1_pos = shift_map[sbox_index]  # position (0..3) where RK_last nibble sits
+    shift_map = [0, 1, 3, 2]  #sbox 0->pos0, sbox1->pos1, sbox2->pos3, sbox3->pos2
+    rk1_pos = shift_map[sbox_index]  #pozycja (0..3) gdzie jest nibble RK_last
     out_bits_map = {}
-    #For performance, we can precompute prev states for each ciphertext for each kguess
     for kguess in range(16):
         guess_key16 = (kguess & 0xF) << ((3 - rk1_pos) * 4)
         nib_list = []
@@ -122,16 +116,14 @@ def compute_signed_correlation(packed_a, packed_b, num_pairs):
     xor = packed_a ^ packed_b
     mismatches = popcount(xor)
     matches = num_pairs - mismatches
-    #signed correlation in [-1,1] where 1 means perfect match, -1 means perfect mismatch
+    #dla [-1,1] 1 oznacza idealne dopasowanie, a -1 means idealne niedopasowanie
     return (matches - mismatches) / num_pairs
 
 def score_candidates_sum_of_squares(out_bits_map, plain_bits_map, lat, num_pairs):
-    #precompute weight per out_mask = max_abs_lat over in_mask
     out_mask_weights = {}
     for (in_mask, out_mask), bias in lat.items():
         out_mask_weights[out_mask] = max(out_mask_weights.get(out_mask, 0.0), abs(bias))
     scores = {k: 0.0 for k in range(16)}
-    #iterate over all (kguess, out_mask)
     for (kguess, out_mask), out_packed in out_bits_map.items():
         w = out_mask_weights.get(out_mask, 1.0)
         for mask_plain, plain_packed in plain_bits_map.items():
@@ -140,7 +132,6 @@ def score_candidates_sum_of_squares(out_bits_map, plain_bits_map, lat, num_pairs
     return scores
 
 def top_k_from_scores(scores, k):
-    #return list of (kguess, score) sorted desc
     items = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)
     return items[:k]
 
@@ -148,10 +139,8 @@ def analyze_position_candidates(pos, aes_obj, ciphertexts, top_out_masks, plain_
     out_bits_map = precompute_out_bits_for_pos(aes_obj, ciphertexts, pos, top_out_masks, inv_mix_func, prev_rk_index)
     scores = score_candidates_sum_of_squares(out_bits_map, plain_bits_map, lat, num_pairs)
     topk = top_k_from_scores(scores, k_candidates)
-    #For diagnostics compute signed bias for topk candidates and best mask info
     detailed = []
     for kguess, sc in topk:
-        #find best single mask pair (mask_out, mask_plain) that gives largest abs(c)
         best = None
         best_abs = -1.0
         for (kg, mask_out), out_packed in out_bits_map.items():
@@ -166,27 +155,23 @@ def analyze_position_candidates(pos, aes_obj, ciphertexts, top_out_masks, plain_
     return topk, detailed
 
 def combine_candidates_and_select(aes_obj, plaintexts_whitened, ciphertexts, per_pos_topk, inv_mix_func):
-    #build list of candidate lists per position
+    #lista kandydatów
     lists = [ [k for (k,_) in per_pos_topk[pos]] for pos in range(4) ]
     combos = list(itertools.product(*lists))
     best_combo = None
     best_combo_score = -math.inf
-    #quick score: sum of individual scores (we have scores in per_pos_topk)
+    #sumam indywidualnych wyników
     pos_score_map = { pos: {k: s for (k,s) in per_pos_topk[pos]} for pos in range(4) }
     for combo in combos:
-        #combo is tuple of 4 nibbles in S-box index order (pos 0..3)
-        #compute RK_last 16-bit value: nibble pos -> RK_last position = shift_map[pos]
         shift_map = [0,1,3,2]
         rk_last = 0
         for pos, nib in enumerate(combo):
             rk1_pos = shift_map[pos]
             rk_last |= (nib & 0xF) << ((3 - rk1_pos) * 4)
-        #combined score as sum of per-position scores
         combo_score = sum(pos_score_map[pos].get(combo[pos], 0.0) for pos in range(4))
         if combo_score > best_combo_score:
             best_combo_score = combo_score
             best_combo = (rk_last, combo_score, combo)
-    #best_combo contains (rk_last, score, tuple_of_nibbles)
     return best_combo
 
 def attack_recover_last_round_key(aes_obj, plaintexts_whitened, ciphertexts, top_out_masks, plaintext_masks, inv_mix_func, lat, num_pairs, k_candidates):
@@ -196,7 +181,6 @@ def attack_recover_last_round_key(aes_obj, plaintexts_whitened, ciphertexts, top
     per_pos_topk = {}
     per_pos_details = {}
 
-    #prev_rk_index is index of the round key immediately before the last round
     prev_rk_index = len(aes_obj.round_keys) - 2
     for pos in range(4):
         topk, detailed = analyze_position_candidates(pos, aes_obj, ciphertexts, top_out_masks, plain_bits_map, N, inv_mix_func, lat, k_candidates, prev_rk_index)
@@ -207,10 +191,8 @@ def attack_recover_last_round_key(aes_obj, plaintexts_whitened, ciphertexts, top
             for d in detailed:
                 print(f"[DEBUG]   detail: {d}")
 
-    #combine top-K candidates across positions
     best_combo = combine_candidates_and_select(aes_obj, plaintexts_whitened, ciphertexts, per_pos_topk, inv_mix_func)
     if best_combo is None:
-        #fallback: choose best single candidate per pos
         recovered = 0
         shift_map = [0,1,3,2]
         for pos in range(4):
@@ -231,7 +213,7 @@ def main():
     for _ in range(NUM_PAIRS):
         pt = random.getrandbits(16)
         ct = aes.encrypt(pt)
-        plaintexts.append(pt ^ aes.round_keys[0])  #whitened plaintexts
+        plaintexts.append(pt ^ aes.round_keys[0])
         ciphertexts.append(ct)
 
     true_last_round_key = aes.round_keys[NUM_ROUNDS-1]
@@ -254,7 +236,6 @@ def main():
     print("Start ataku...")
 
     inv_mix_func = make_inv_mix_columns(aes)
-    #sprawdza kilka losowych stanów
     for _ in range(10):
         s = random.getrandbits(16)
         assert inv_mix_func(aes.mix_columns(s)) == s
